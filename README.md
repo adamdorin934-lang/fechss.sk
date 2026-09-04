@@ -1,1 +1,963 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chess Master Pro — Magnus AI</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-gradient(135deg,#312e2b 0%,#272522 100%);color:#fff;min-height:100vh;display:flex;justify-content:center;align-items:center;padding:20px}
+.app-container{display:flex;gap:24px;max-width:1200px;width:100%;flex-wrap:wrap;justify-content:center}
+.board-wrapper{display:flex;flex-direction:column;align-items:center;gap:8px}
+.board-container{position:relative;border-radius:4px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.6)}
+.board{display:grid;grid-template-columns:repeat(8,64px);grid-template-rows:repeat(8,64px);width:512px;height:512px}
+.square{width:64px;height:64px;display:flex;justify-content:center;align-items:center;font-size:48px;cursor:pointer;user-select:none;position:relative;transition:background .1s}
+.square.light{background:#ebecd0}.square.dark{background:#779556}
+.square:hover{filter:brightness(1.05)}
+.square.selected{background:#baca44!important}
+.square.last-move{box-shadow:inset 0 0 0 4px #f7ec5f}
+.square.legal-move::after{content:'';position:absolute;width:20px;height:20px;background:rgba(0,0,0,.2);border-radius:50%;pointer-events:none}
+.square.legal-capture{box-shadow:inset 0 0 0 4px rgba(0,0,0,.3)}
+.square.check{background:radial-gradient(ellipse at center,rgba(255,0,0,.8) 0%,rgba(255,0,0,.4) 100%)!important}
+.piece{text-shadow:1px 1px 2px rgba(0,0,0,.4);z-index:2;transition:transform .15s ease}
+.piece.white{color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8),0 0 1px #000}
+.piece.black{color:#1a1a1a;text-shadow:0 1px 2px rgba(255,255,255,.3)}
+.coords-file,.coords-rank{display:flex;font-size:12px;font-weight:600;color:#b0b0b0}
+.coords-file{width:512px;justify-content:space-around;padding:2px 0}
+.coords-rank{flex-direction:column;height:512px;justify-content:space-around;padding:0 4px}
+.board-area{display:flex;align-items:center}
+.side-panel{width:340px;background:#262522;border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.panel-header{font-size:18px;font-weight:700;color:#fff;border-bottom:2px solid #3d3d3d;padding-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.eval-bar-container{height:24px;background:#1a1a1a;border-radius:4px;overflow:hidden;position:relative;border:1px solid #444}
+.eval-bar{height:100%;background:linear-gradient(90deg,#1a1a1a 0%,#1a1a1a var(--eval),#fff var(--eval),#fff 100%);transition:--eval .5s;position:relative}
+.eval-text{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:12px;font-weight:700;color:#fff;text-shadow:0 0 2px #000}
+.clock-row{display:flex;justify-content:space-between;gap:8px}
+.clock{background:#3d3d3d;padding:8px 16px;border-radius:6px;font-family:'Courier New',monospace;font-size:20px;font-weight:700;text-align:center;flex:1;border:2px solid #555}
+.clock.active{border-color:#baca44;background:#4a4a3a}
+.clock-label{font-size:10px;color:#aaa;text-transform:uppercase;margin-bottom:2px}
+.move-list{background:#1e1e1c;border-radius:6px;height:180px;overflow-y:auto;padding:8px;font-family:'Courier New',monospace;font-size:13px;border:1px solid #3d3d3d}
+.move-row{display:flex;gap:8px;padding:2px 0}
+.move-num{color:#888;width:30px;text-align:right}
+.move-white,.move-black{width:70px;cursor:pointer;padding:2px 4px;border-radius:3px}
+.move-white:hover,.move-black:hover{background:#3d3d3d}
+.captured-pieces{display:flex;flex-wrap:wrap;gap:2px;min-height:32px;align-items:center;font-size:24px;padding:4px;background:#1e1e1c;border-radius:6px;border:1px solid #3d3d3d}
+.captured-white{text-shadow:0 1px 2px rgba(0,0,0,.8);color:#fff}
+.captured-black{color:#1a1a1a;text-shadow:0 1px 2px rgba(255,255,255,.3)}
+.btn-group{display:flex;gap:6px;flex-wrap:wrap}
+.btn{background:#4a4a4a;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;transition:all .2s;flex:1;min-width:70px}
+.btn:hover{background:#5a5a5a;transform:translateY(-1px)}
+.btn.primary{background:#769656}.btn.primary:hover{background:#86a666}
+.btn.danger{background:#c33}.btn.danger:hover{background:#d44}
+.btn.info{background:#4a90d9}.btn.info:hover{background:#5aa0e9}
+.status-bar{background:#1e1e1c;padding:10px;border-radius:6px;text-align:center;font-weight:600;font-size:13px;border:1px solid #3d3d3d;min-height:40px;display:flex;align-items:center;justify-content:center;flex-direction:column}
+.status-check{color:#ff6b6b}.status-mate{color:#ffd93d}.status-draw{color:#6bcb77}.status-squeeze{color:#ff9f43}
+.promotion-modal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);display:none;justify-content:center;align-items:center;z-index:1000}
+.promotion-modal.active{display:flex}
+.promotion-box{background:#262522;padding:20px;border-radius:12px;display:flex;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.promotion-piece{font-size:48px;cursor:pointer;padding:8px;border-radius:8px;transition:transform .2s,background .2s;background:#3d3d3d}
+.promotion-piece:hover{transform:scale(1.15);background:#4d4d4d}
+.tactic-alert{background:linear-gradient(135deg,#ff6b6b20,#ffd93d20);border:1px solid #ff6b6b;border-radius:6px;padding:10px;font-size:12px;display:none}
+.tactic-alert.active{display:block}
+.tactic-title{font-weight:700;color:#ffd93d;margin-bottom:4px}
+.settings-row{display:flex;align-items:center;gap:8px;margin-top:2px}
+.settings-row label{font-size:12px;color:#aaa;min-width:90px}
+select,input[type="number"]{background:#3d3d3d;color:#fff;border:1px solid #555;border-radius:4px;padding:4px 8px;font-size:13px;flex:1}
+.sound-toggle{display:flex;align-items:center;gap:6px;font-size:12px;color:#aaa;cursor:pointer}
+.sound-toggle input{cursor:pointer}
+.ai-style-info{font-size:11px;color:#aaa;background:#1e1e1c;padding:6px;border-radius:4px;border-left:3px solid #769656;margin-top:4px}
+::-webkit-scrollbar{width:8px}
+::-webkit-scrollbar-track{background:#1e1e1c}
+::-webkit-scrollbar-thumb{background:#4a4a4a;border-radius:4px}
+@media(max-width:900px){.board{grid-template-columns:repeat(8,48px);grid-template-rows:repeat(8,48px);width:384px;height:384px}.square{width:48px;height:48px;font-size:36px}.coords-file{width:384px}.coords-rank{height:384px}.side-panel{width:100%;max-width:384px}}
+</style>
+<base target="_blank">
+</head>
+<body>
+<div class="app-container">
+<div class="board-wrapper">
+<div class="board-area">
+<div class="coords-rank"><span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span></div>
+<div class="board-container"><div class="board" id="board"></div></div>
+</div>
+<div class="coords-file"><span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span></div>
+</div>
 
+<div class="side-panel">
+<div class="panel-header"><span>♔ Chess Master Pro</span><span id="game-status">♟ Biely na ťahu</span></div>
+
+<div class="eval-bar-container"><div class="eval-bar" id="evalBar" style="--eval:50%"><span class="eval-text" id="evalText">0.00</span></div></div>
+
+<div class="clock-row">
+<div class="clock" id="clockBlack"><div class="clock-label">Čierny</div><div id="timeBlack">10:00</div></div>
+<div class="clock active" id="clockWhite"><div class="clock-label">Biely</div><div id="timeWhite">10:00</div></div>
+</div>
+
+<div class="captured-pieces" id="capturedWhite"></div>
+<div class="captured-pieces" id="capturedBlack"></div>
+
+<div class="move-list" id="moveList"></div>
+
+<div class="tactic-alert" id="tacticAlert"><div class="tactic-title">⚡ Skrytá taktika!</div><div id="tacticText"></div></div>
+
+<div class="status-bar" id="statusBar">Nová hra — ťah biely<br><span style="font-size:11px;color:#888">AI štýl: Čaká sa na prvý ťah</span></div>
+
+<div class="settings-row"><label>Režim:</label><select id="gameMode"><option value="pvp">Hráč vs Hráč</option><option value="pve-white">Hráč (Biely) vs Magnus AI</option><option value="pve-black">Hráč (Čierny) vs Magnus AI</option><option value="ai-ai">AI vs AI</option></select></div>
+<div class="settings-row"><label>AI úroveň:</label><select id="aiLevel"><option value="1">1 — Začiatočník (chýbajú taktiky)</option><option value="2">2 — Amatér (slabá prophylaxia)</option><option value="3" selected>3 — Klubový hráč (Carlsen squeeze)</option><option value="4">4 — Majster (NNUE evaluácia)</option><option value="5">5 — Veľmajster (maximálny tlak)</option></select></div>
+<div class="settings-row"><label>Čas (min):</label><input type="number" id="gameTime" value="10" min="1" max="60"></div>
+<div class="settings-row"><label>Prírastok (s):</label><input type="number" id="increment" value="2" min="0" max="60"></div>
+<div class="settings-row"><div class="sound-toggle"><input type="checkbox" id="soundOn" checked><label for="soundOn" style="min-width:auto;cursor:pointer">Zvuky</label></div></div>
+
+<div class="ai-style-info" id="aiStyleInfo">
+<b>🧠 Magnus AI Engine</b><br>
+• Negamax + Alpha-Beta + Quiescence<br>
+• Pawn structure + King safety + Mobility<br>
+• Carlsen squeeze v rovných pozíciách<br>
+• Prophylaxia a praktický tlak
+</div>
+
+<div class="btn-group">
+<button class="btn" onclick="game.undoMove()">↩ Undo</button>
+<button class="btn primary" onclick="game.resetGame()">⟳ Reset</button>
+<button class="btn info" onclick="game.findTactic()">🔍 FHT</button>
+</div>
+<div class="btn-group">
+<button class="btn" onclick="game.exportFEN()">📋 FEN</button>
+<button class="btn" onclick="game.exportPGN()">📄 PGN</button>
+<button class="btn" onclick="document.getElementById('fenInput').click()">📥 Load</button>
+</div>
+<input type="file" id="fenInput" style="display:none" accept=".txt,.fen,.pgn" onchange="game.importFile(event)">
+</div>
+</div>
+
+<div class="promotion-modal" id="promotionModal"><div class="promotion-box" id="promotionBox"></div></div>
+
+<script>
+
+// ==================== CONSTANTS & TABLES ====================
+const PIECES={w:{P:'♙',N:'♘',B:'♗',R:'♖',Q:'♕',K:'♔'},b:{P:'♟',N:'♞',B:'♝',R:'♜',Q:'♛',K:'♚'}};
+const PVAL={P:100,N:320,B:330,R:500,Q:900,K:20000};
+const PST={
+P:[0,0,0,0,0,0,0,0,50,50,50,50,50,50,50,50,10,10,20,30,30,20,10,10,5,5,10,25,25,10,5,5,0,0,0,20,20,0,0,0,5,-5,-10,0,0,-10,-5,5,5,10,10,-20,-20,10,10,5,0,0,0,0,0,0,0,0],
+N:[-50,-40,-30,-30,-30,-30,-40,-50,-40,-20,0,0,0,0,-20,-40,-30,0,10,15,15,10,0,-30,-30,5,15,20,20,15,5,-30,-30,0,15,20,20,15,0,-30,-30,5,10,15,15,10,5,-30,-40,-20,0,5,5,0,-20,-40,-50,-40,-30,-30,-30,-30,-40,-50],
+B:[-20,-10,-10,-10,-10,-10,-10,-20,-10,0,0,0,0,0,0,-10,-10,0,10,10,10,10,0,-10,-10,5,5,10,10,5,5,-10,-10,0,5,10,10,5,0,-10,-10,10,10,10,10,10,10,-10,-10,5,0,0,0,0,5,-10,-20,-10,-10,-10,-10,-10,-10,-20],
+R:[0,0,0,0,0,0,0,0,5,10,10,10,10,10,10,5,-5,0,0,0,0,0,0,-5,-5,0,0,0,0,0,0,-5,-5,0,0,0,0,0,0,-5,-5,0,0,0,0,0,0,-5,0,0,0,5,5,0,0,0,0,0,0,0,0,0,0,0],
+Q:[-20,-10,-10,-5,-5,-10,-10,-20,-10,0,0,0,0,0,0,-10,-10,0,5,5,5,5,0,-10,-5,0,5,5,5,5,0,-5,0,0,5,5,5,5,0,-5,-10,5,5,5,5,5,0,-10,-10,0,5,0,0,0,0,-10,-20,-10,-10,-5,-5,-10,-10,-20],
+K:[-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-20,-30,-30,-40,-40,-30,-30,-20,-10,-20,-20,-20,-20,-20,-20,-10,20,20,0,0,0,0,20,20,20,30,10,0,0,10,30,20]
+};
+const PASSED_PAWN=[0,10,20,40,60,90,140,0];
+const ISOLATED_PAWN=-15;
+const DOUBLED_PAWN=-10;
+const BACKWARD_PAWN=-8;
+
+// ==================== CHESS ENGINE ====================
+class ChessEngine {
+constructor(){this.reset();}
+reset(){
+this.board=this.parseFEN('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+this.turn='w';this.castle={w:{K:true,Q:true},b:{K:true,Q:true}};
+this.ep=null;this.halfmove=0;this.fullmove=1;
+this.history=[];this.posHistory=[];
+this.captured={w:[],b:[]};
+this.moveHistory=[];
+this.savePosition();
+}
+parseFEN(fen){
+const parts=fen.split(' ');
+const rows=parts[0].split('/');
+const b=[];
+for(let r=0;r<8;r++){
+let row=[];
+for(const ch of rows[r]){
+if(/\d/.test(ch))for(let i=0;i<parseInt(ch);i++)row.push(null);
+else row.push(ch);
+}
+b.push(...row);
+}
+this.turn=parts[1]||'w';
+this.castle={w:{K:false,Q:false},b:{K:false,Q:false}};
+if(parts[2]){for(const c of parts[2]){if(c==='K')this.castle.w.K=true;if(c==='Q')this.castle.w.Q=true;if(c==='k')this.castle.b.K=true;if(c==='q')this.castle.b.Q=true;}}
+this.ep=parts[3]&&parts[3]!=='-'?this.sq2idx(parts[3]):null;
+this.halfmove=parseInt(parts[4]||0);
+this.fullmove=parseInt(parts[5]||1);
+return b;
+}
+getFEN(){
+let fen='';
+for(let r=0;r<8;r++){
+let empty=0;
+for(let c=0;c<8;c++){
+const p=this.board[r*8+c];
+if(!p)empty++;
+else{if(empty)fen+=empty;fen+=p;empty=0;}
+}
+if(empty)fen+=empty;
+if(r<7)fen+='/';
+}
+fen+=' '+this.turn;
+let cst='';
+if(this.castle.w.K)cst+='K';if(this.castle.w.Q)cst+='Q';
+if(this.castle.b.K)cst+='k';if(this.castle.b.Q)cst+='q';
+fen+=' '+(cst||'-');
+fen+=' '+(this.ep!=null?this.idx2sq(this.ep):'-');
+fen+=' '+this.halfmove+' '+this.fullmove;
+return fen;
+}
+sq2idx(sq){const f='abcdefgh'.indexOf(sq[0]);const r=8-parseInt(sq[1]);return r*8+f;}
+idx2sq(i){const f=i%8;const r=8-Math.floor(i/8);return 'abcdefgh'[f]+r;}
+color(p){return p===p.toUpperCase()?'w':'b';}
+opponent(c){return c==='w'?'b':'w';}
+inBounds(r,c){return r>=0&&r<8&&c>=0&&c<8;}
+
+generateMoves(onlyLegal=true,includeQuiet=true){
+const moves=[];
+for(let i=0;i<64;i++){
+const p=this.board[i];
+if(!p||this.color(p)!==this.turn)continue;
+const r=Math.floor(i/8),c=i%8,type=p.toUpperCase();
+if(type==='P'){
+const dir=this.turn==='w'?1:-1,startR=this.turn==='w'?6:1,pr=this.turn==='w'?0:7;
+const nr=r-dir;
+if(this.inBounds(nr,c)&&!this.board[nr*8+c]){
+if(nr===pr)['Q','R','B','N'].forEach(pp=>moves.push({from:i,to:nr*8+c,piece:p,promotion:this.turn==='w'?pp:pp.toLowerCase(),flags:'P'}));
+else if(includeQuiet)moves.push({from:i,to:nr*8+c,piece:p,flags:'N'});
+if(r===startR&&this.inBounds(nr-dir,c)&&!this.board[(nr-dir)*8+c]&&includeQuiet)
+moves.push({from:i,to:(nr-dir)*8+c,piece:p,flags:'D'});
+}
+[-1,1].forEach(dc=>{
+const nc=c+dc;
+if(this.inBounds(nr,nc)){
+const tgt=this.board[nr*8+nc];
+if(tgt&&this.color(tgt)!==this.turn){
+if(nr===pr)['Q','R','B','N'].forEach(pp=>moves.push({from:i,to:nr*8+nc,piece:p,captured:tgt,promotion:this.turn==='w'?pp:pp.toLowerCase(),flags:'C'}));
+else moves.push({from:i,to:nr*8+nc,piece:p,captured:tgt,flags:'C'});
+}
+if(this.ep===nr*8+nc&&!tgt)
+moves.push({from:i,to:nr*8+nc,piece:p,flags:'E'});
+}
+});
+}else{
+const dirs={N:[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]],
+B:[[-1,-1],[-1,1],[1,-1],[1,1]],R:[[-1,0],[1,0],[0,-1],[0,1]],
+Q:[[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]],
+K:[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]}[type];
+dirs.forEach(d=>{
+let nr=r+d[0],nc=c+d[1];
+if(type==='N'||type==='K'){
+if(this.inBounds(nr,nc)){
+const tgt=this.board[nr*8+nc];
+if(!tgt&&includeQuiet)moves.push({from:i,to:nr*8+nc,piece:p,flags:'N'});
+else if(tgt&&this.color(tgt)!==this.turn)moves.push({from:i,to:nr*8+nc,piece:p,captured:tgt,flags:'C'});
+}
+}else{
+while(this.inBounds(nr,nc)){
+const tgt=this.board[nr*8+nc];
+if(!tgt&&includeQuiet)moves.push({from:i,to:nr*8+nc,piece:p,flags:'N'});
+else{if(tgt&&this.color(tgt)!==this.turn)moves.push({from:i,to:nr*8+nc,piece:p,captured:tgt,flags:'C'});break;}
+nr+=d[0];nc+=d[1];
+}
+}
+});
+}
+}
+// Castling
+const cr=this.castle[this.turn];
+const row=this.turn==='w'?7:0,kidx=row*8+4;
+if(cr.K&&!this.board[row*8+5]&&!this.board[row*8+6]&&this.board[row*8+7]&&this.board[row*8+7].toUpperCase()==='R'&&this.color(this.board[row*8+7])===this.turn)
+if(!this.isAttacked(kidx,this.opponent(this.turn))&&!this.isAttacked(row*8+5,this.opponent(this.turn)))
+moves.push({from:kidx,to:row*8+6,piece:this.board[kidx],flags:'K'});
+if(cr.Q&&!this.board[row*8+3]&&!this.board[row*8+2]&&!this.board[row*8+1]&&this.board[row*8+0]&&this.board[row*8+0].toUpperCase()==='R'&&this.color(this.board[row*8+0])===this.turn)
+if(!this.isAttacked(kidx,this.opponent(this.turn))&&!this.isAttacked(row*8+3,this.opponent(this.turn)))
+moves.push({from:kidx,to:row*8+2,piece:this.board[kidx],flags:'Q'});
+
+if(!onlyLegal)return moves;
+return moves.filter(m=>{
+this.makeMove(m);
+const legal=!this.isCheck(this.turn==='w'?'b':'w');
+this.undoMove();
+return legal;
+});
+}
+generateCaptures(){return this.generateMoves(true,false).filter(m=>m.flags==='C'||m.flags==='E'||m.promotion);}
+
+isAttacked(idx,byColor){
+for(let i=0;i<64;i++){
+const p=this.board[i];if(!p||this.color(p)!==byColor)continue;
+const r=Math.floor(i/8),c=i%8,type=p.toUpperCase();
+if(type==='P'){
+const dir=byColor==='w'?1:-1;
+if(Math.floor(idx/8)===r-dir&&Math.abs((idx%8)-c)===1)return true;
+}else if(type==='N'){
+const dr=Math.abs(Math.floor(idx/8)-r),dc=Math.abs((idx%8)-c);
+if((dr===2&&dc===1)||(dr===1&&dc===2))return true;
+}else if(type==='K'){
+if(Math.abs(Math.floor(idx/8)-r)<=1&&Math.abs((idx%8)-c)<=1&&i!==idx)return true;
+}else{
+const dirs=type==='B'?[[-1,-1],[-1,1],[1,-1],[1,1]]:type==='R'?[[-1,0],[1,0],[0,-1],[0,1]]:[[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]];
+for(const d of dirs){
+let nr=r+d[0],nc=c+d[1];
+while(this.inBounds(nr,nc)){const t=nr*8+nc;if(t===idx)return true;if(this.board[t])break;nr+=d[0];nc+=d[1];}
+}
+}
+}
+return false;
+}
+findKing(color){for(let i=0;i<64;i++)if(this.board[i]&&this.board[i].toUpperCase()==='K'&&this.color(this.board[i])===color)return i;return-1;}
+isCheck(byColor){const k=this.findKing(this.opponent(byColor));return k>=0&&this.isAttacked(k,byColor);}
+isCheckmate(){return this.isCheck(this.opponent(this.turn==='w'?'b':'w'))&&this.generateMoves().length===0;}
+isStalemate(){return !this.isCheck(this.opponent(this.turn==='w'?'b':'w'))&&this.generateMoves().length===0;}
+isDraw(){if(this.halfmove>=100)return true;const posKey=this.getFEN().split(' ').slice(0,4).join(' ');let cnt=0;for(const p of this.posHistory)if(p===posKey)cnt++;return cnt>=2;}
+makeMove(m){
+const state={board:[...this.board],turn:this.turn,castle:JSON.parse(JSON.stringify(this.castle)),ep:this.ep,halfmove:this.halfmove,fullmove:this.fullmove,captured:{w:[...this.captured.w],b:[...this.captured.b]}};
+this.history.push(state);
+const fromR=Math.floor(m.from/8),fromC=m.from%8,toR=Math.floor(m.to/8),toC=m.to%8;
+this.board[m.to]=m.promotion||m.piece;this.board[m.from]=null;
+if(m.flags==='E'){const epSq=this.turn==='w'?m.to+8:m.to-8;this.captured[this.turn].push(this.board[epSq]);this.board[epSq]=null;}
+if(m.captured&&m.flags!=='E')this.captured[this.turn].push(m.captured);
+if(m.flags==='K'){this.board[toR*8+5]=this.board[toR*8+7];this.board[toR*8+7]=null;}
+if(m.flags==='Q'){this.board[toR*8+3]=this.board[toR*8+0];this.board[toR*8+0]=null;}
+if(m.piece.toUpperCase()==='P'||m.captured)this.halfmove=0;else this.halfmove++;
+if(m.piece.toUpperCase()==='P'&&Math.abs(fromR-toR)===2)this.ep=(fromR+toR)/2*8+fromC;else this.ep=null;
+if(m.piece.toUpperCase()==='K')this.castle[this.turn]={K:false,Q:false};
+if(m.piece.toUpperCase()==='R'){
+if(m.from===7*8+0&&this.turn==='w')this.castle.w.Q=false;
+if(m.from===7*8+7&&this.turn==='w')this.castle.w.K=false;
+if(m.from===0*8+0&&this.turn==='b')this.castle.b.Q=false;
+if(m.from===0*8+7&&this.turn==='b')this.castle.b.K=false;
+}
+if(m.captured&&m.captured.toUpperCase()==='R'){
+if(m.to===7*8+0)this.castle.w.Q=false;if(m.to===7*8+7)this.castle.w.K=false;
+if(m.to===0*8+0)this.castle.b.Q=false;if(m.to===0*8+7)this.castle.b.K=false;
+}
+this.turn=this.opponent(this.turn);
+if(this.turn==='w')this.fullmove++;
+this.moveHistory.push(m);
+this.savePosition();
+}
+undoMove(){
+if(!this.history.length)return;
+const s=this.history.pop();
+this.board=s.board;this.turn=s.turn;this.castle=s.castle;this.ep=s.ep;
+this.halfmove=s.halfmove;this.fullmove=s.fullmove;this.captured=s.captured;
+this.moveHistory.pop();
+this.posHistory.pop();
+}
+savePosition(){this.posHistory.push(this.getFEN().split(' ').slice(0,4).join(' '));}
+getAlgebraic(m){
+const moves=this.generateMoves(false);
+const sameType=moves.filter(x=>x.piece===m.piece&&x.to===m.to&&x.from!==m.from);
+let alg='';
+if(m.piece.toUpperCase()!=='P')alg=m.piece.toUpperCase();
+else if(m.captured||m.flags==='E')alg=this.idx2sq(m.from)[0];
+if(sameType.length>0){
+const fromFile=this.idx2sq(m.from)[0],fromRank=this.idx2sq(m.from)[1];
+const sameFile=sameType.some(x=>this.idx2sq(x.from)[0]===fromFile);
+const sameRank=sameType.some(x=>this.idx2sq(x.from)[1]===fromRank);
+if(!sameFile)alg+=fromFile;else if(!sameRank)alg+=fromRank;else alg+=this.idx2sq(m.from);
+}
+if(m.captured||m.flags==='E')alg+='x';
+alg+=this.idx2sq(m.to);
+if(m.promotion)alg+='='+m.promotion.toUpperCase();
+const test=JSON.parse(JSON.stringify(this));
+test.makeMove(m);
+if(test.isCheckmate())alg+='#';else if(test.isCheck('w')||test.isCheck('b'))alg+='+';
+return alg;
+}
+getPGN(){
+let pgn='[Event "Chess Master Pro Game"]\n[Site "Local"]\n[Date "'+new Date().toISOString().slice(0,10)+'"]\n';
+pgn+='[White "Player"]\n[Black "Player"]\n[Result "*"]\n\n';
+for(let i=0;i<this.moveHistory.length;i+=2){
+pgn+=Math.floor(i/2)+1+'. ';
+pgn+=this.getAlgebraic(this.moveHistory[i])+' ';
+if(this.moveHistory[i+1])pgn+=this.getAlgebraic(this.moveHistory[i+1])+' ';
+}
+return pgn;
+}
+}
+
+// ==================== MAGNUS AI ENGINE ====================
+class MagnusAI {
+constructor(engine,level=3){
+this.engine=engine;
+this.level=level;
+this.nodes=0;
+this.config={
+1:{depth:2,q:false,squeeze:false,prophylaxis:false,sharpness:0.3,blunderChance:0.15},
+2:{depth:3,q:true,squeeze:false,prophylaxis:true,sharpness:0.5,blunderChance:0.08},
+3:{depth:3,q:true,squeeze:true,prophylaxis:true,sharpness:0.7,blunderChance:0.03},
+4:{depth:4,q:true,squeeze:true,prophylaxis:true,sharpness:0.85,blunderChance:0.01},
+5:{depth:4,q:true,squeeze:true,prophylaxis:true,sharpness:1.0,blunderChance:0}
+}[level];
+}
+
+evaluate(){
+let score=0;
+const isEndgame=this.isEndgame();
+for(let i=0;i<64;i++){
+const p=this.engine.board[i];if(!p)continue;
+const isWhite=this.engine.color(p)==='w',val=PVAL[p.toUpperCase()];
+const pst=PST[p.toUpperCase()][isWhite?i:63-i];
+if(p.toUpperCase()==='K'&&isEndgame){
+const egPst=[-50,-40,-30,-20,-20,-30,-40,-50,-30,-20,-10,0,0,-10,-20,-30,-30,-10,20,30,30,20,-10,-30,-30,-10,30,40,40,30,-10,-30,-30,-10,30,40,40,30,-10,-30,-30,-10,20,30,30,20,-10,-30,-30,-30,0,0,0,0,-30,-30,-50,-30,-30,-30,-30,-30,-30,-50];
+score+=isWhite?egPst[i]:-egPst[63-i];
+}else{
+score+=isWhite?(val+pst):-(val+pst);
+}
+}
+const tmpTurn=this.engine.turn;
+this.engine.turn='w';const wMob=this.engine.generateMoves(false).length;
+this.engine.turn='b';const bMob=this.engine.generateMoves(false).length;
+this.engine.turn=tmpTurn;
+score+=(wMob-bMob)*4;
+score+=this.evaluatePawns();
+if(!isEndgame){score+=this.evaluateKingSafety('w');score-=this.evaluateKingSafety('b');}
+score+=this.evaluateOutposts('w');score-=this.evaluateOutposts('b');
+score+=this.evaluateRooks('w');score-=this.evaluateRooks('b');
+score+=this.evaluateSpace('w');score-=this.evaluateSpace('b');
+if(this.config.prophylaxis){score+=this.evaluateProphylaxis('w');score-=this.evaluateProphylaxis('b');}
+return this.engine.turn==='w'?score:-score;
+}
+
+isEndgame(){
+let queens=0,minorPieces=0;
+for(let i=0;i<64;i++){
+const p=this.engine.board[i];if(!p)continue;
+const t=p.toUpperCase();
+if(t==='Q')queens++;
+if(t==='N'||t==='B')minorPieces++;
+}
+return queens===0||(queens<=2&&minorPieces<=4);
+}
+
+evaluatePawns(){
+let score=0;
+for(let c=0;c<8;c++){
+let wPawns=[],bPawns=[];
+for(let r=0;r<8;r++){
+const p=this.engine.board[r*8+c];
+if(p==='P')wPawns.push(r);
+if(p==='p')bPawns.push(r);
+}
+if(wPawns.length>1)score+=DOUBLED_PAWN*(wPawns.length-1);
+if(bPawns.length>1)score-=DOUBLED_PAWN*(bPawns.length-1);
+const wIso=wPawns.length>0&&(c===0||!this.hasPawn(c-1,'w'))&&(c===7||!this.hasPawn(c+1,'w'));
+const bIso=bPawns.length>0&&(c===0||!this.hasPawn(c-1,'b'))&&(c===7||!this.hasPawn(c+1,'b'));
+if(wIso)score+=ISOLATED_PAWN;
+if(bIso)score-=ISOLATED_PAWN;
+for(const r of wPawns){
+let passed=true;
+for(let rr=r-1;rr>=0;rr--){
+if((c>0&&this.engine.board[rr*8+c-1]==='p')||(this.engine.board[rr*8+c]==='p')||(c<7&&this.engine.board[rr*8+c+1]==='p')){passed=false;break;}
+}
+if(passed)score+=PASSED_PAWN[7-r];
+}
+for(const r of bPawns){
+let passed=true;
+for(let rr=r+1;rr<8;rr++){
+if((c>0&&this.engine.board[rr*8+c-1]==='P')||(this.engine.board[rr*8+c]==='P')||(c<7&&this.engine.board[rr*8+c+1]==='P')){passed=false;break;}
+}
+if(passed)score-=PASSED_PAWN[r];
+}
+}
+return score;
+}
+hasPawn(file,color){for(let r=0;r<8;r++)if(this.engine.board[r*8+file]===(color==='w'?'P':'p'))return true;return false;}
+
+evaluateKingSafety(color){
+const k=this.engine.findKing(color);if(k<0)return 0;
+const kr=Math.floor(k/8),kc=k%8;
+let shield=0;
+const dir=color==='w'?-1:1;
+for(let dc=-1;dc<=1;dc++){
+const nc=kc+dc;
+if(nc>=0&&nc<8){
+const pr=kr+dir;
+if(pr>=0&&pr<8){
+const p=this.engine.board[pr*8+nc];
+if(p&&p.toUpperCase()==='P'&&this.engine.color(p)===color)shield+=15;
+}
+}
+}
+let attacks=0;
+for(let r=kr-2;r<=kr+2;r++){
+for(let c=kc-2;c<=kc+2;c++){
+if(this.engine.inBounds(r,c)&&this.engine.isAttacked(r*8+c,this.engine.opponent(color)))attacks++;
+}
+}
+return shield-attacks*8;
+}
+
+evaluateOutposts(color){
+let score=0;
+const oppPawn=color==='w'?'p':'P';
+for(let i=0;i<64;i++){
+const p=this.engine.board[i];if(!p||this.engine.color(p)!==color)continue;
+const t=p.toUpperCase();
+if(t!=='N'&&t!=='B')continue;
+const r=Math.floor(i/8),c=i%8;
+const behindDir=color==='w'?1:-1;
+let isOutpost=true;
+if(c>0){const br=r+behindDir,bc=c-1;if(this.engine.inBounds(br,bc)&&this.engine.board[br*8+bc]===oppPawn)isOutpost=false;}
+if(c<7){const br=r+behindDir,bc=c+1;if(this.engine.inBounds(br,bc)&&this.engine.board[br*8+bc]===oppPawn)isOutpost=false;}
+if(isOutpost){
+const rankBonus=color==='w'?(7-r):r;
+if(rankBonus>=4)score+=25;
+}
+}
+return score;
+}
+
+evaluateRooks(color){
+let score=0;
+for(let i=0;i<64;i++){
+const p=this.engine.board[i];if(!p||this.engine.color(p)!==color||p.toUpperCase()!=='R')continue;
+const c=i%8;
+let hasOwnPawn=false,hasOppPawn=false;
+for(let r=0;r<8;r++){
+const sq=this.engine.board[r*8+c];
+if(sq&&sq.toUpperCase()==='P'){if(this.engine.color(sq)===color)hasOwnPawn=true;else hasOppPawn=true;}
+}
+if(!hasOwnPawn&&hasOppPawn)score+=25;
+else if(!hasOwnPawn&&!hasOppPawn)score+=15;
+}
+return score;
+}
+
+evaluateSpace(color){
+let score=0;
+const advRow=color==='w'?3:4;
+for(let r=advRow;r<advRow+3;r++){
+for(let c=0;c<8;c++){
+if(this.engine.isAttacked(r*8+c,this.engine.opponent(color)))score-=2;
+if(this.engine.isAttacked(r*8+c,color))score+=3;
+}
+}
+return score;
+}
+
+evaluateProphylaxis(color){
+let restriction=0;
+const opp=this.engine.opponent(color);
+for(let i=0;i<64;i++){
+const p=this.engine.board[i];if(!p||this.engine.color(p)!==opp)continue;
+const t=p.toUpperCase();
+if(t==='Q'||t==='R'||t==='N'||t==='B'){
+let mobility=0;
+const r=Math.floor(i/8),c=i%8;
+if(t==='N'){
+const moves=[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+for(const m of moves){const nr=r+m[0],nc=c+m[1];if(this.engine.inBounds(nr,nc))mobility++;}
+}else if(t==='K'){
+for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++)if(dr||dc){const nr=r+dr,nc=c+dc;if(this.engine.inBounds(nr,nc))mobility++;}
+}else{
+const dirs=t==='B'?[[-1,-1],[-1,1],[1,-1],[1,1]]:t==='R'?[[-1,0],[1,0],[0,-1],[0,1]]:[[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]];
+for(const d of dirs){let nr=r+d[0],nc=c+d[1];while(this.engine.inBounds(nr,nc)){mobility++;if(this.engine.board[nr*8+nc])break;nr+=d[0];nc+=d[1];}}
+}
+if(mobility<4)restriction+=15;
+}
+}
+return color===this.engine.turn?restriction:-restriction;
+}
+
+negamax(depth,alpha,beta,color,allowNull=true){
+this.nodes++;
+if(depth<=0){
+if(this.config.q)return this.quiescence(alpha,beta,color);
+return color*this.evaluate();
+}
+const moves=this.engine.generateMoves();
+if(moves.length===0){
+if(this.engine.isCheckmate())return color*(this.engine.turn==='w'?-99999:99999);
+return 0;
+}
+if(allowNull&&depth>=3&&this.config.sharpness>0.7&&!this.engine.isCheck(this.engine.turn)){
+this.engine.turn=this.engine.opponent(this.engine.turn);
+const nullScore=-this.negamax(depth-3,-beta,-beta+1,-color,false);
+this.engine.turn=this.engine.opponent(this.engine.turn);
+if(nullScore>=beta)return beta;
+}
+moves.sort((a,b)=>{
+let sa=0,sb=0;
+if(a.captured)sa=PVAL[a.captured.toUpperCase()]*10-PVAL[a.piece.toUpperCase()];
+if(b.captured)sb=PVAL[b.captured.toUpperCase()]*10-PVAL[b.piece.toUpperCase()];
+if(a.flags==='K'||a.flags==='Q')sa+=50;
+if(b.flags==='K'||b.flags==='Q')sb+=50;
+return sb-sa;
+});
+let bestScore=-Infinity;
+for(const m of moves){
+this.engine.makeMove(m);
+let score;
+if(m===moves[0])score=-this.negamax(depth-1,-beta,-alpha,-color,true);
+else{
+score=-this.negamax(depth-1,-alpha-1,-alpha,-color,true);
+if(score>alpha&&score<beta)score=-this.negamax(depth-1,-beta,-score,-color,true);
+}
+this.engine.undoMove();
+if(score>bestScore)bestScore=score;
+if(score>=beta)return beta;
+if(score>alpha)alpha=score;
+}
+return alpha;
+}
+
+quiescence(alpha,beta,color){
+this.nodes++;
+const standPat=color*this.evaluate();
+if(standPat>=beta)return beta;
+if(alpha<standPat)alpha=standPat;
+const captures=this.engine.generateCaptures();
+for(const cap of captures){
+const delta=PVAL[cap.captured?cap.captured.toUpperCase():'P']+200;
+if(standPat+delta<alpha)continue;
+this.engine.makeMove(cap);
+const score=-this.quiescence(-beta,-alpha,-color);
+this.engine.undoMove();
+if(score>=beta)return beta;
+if(score>alpha)alpha=score;
+}
+return alpha;
+}
+
+calculatePracticalDifficulty(move){
+this.engine.makeMove(move);
+const oppMoves=this.engine.generateMoves();
+let difficulty=0;
+if(oppMoves.length>0){
+let goodMoves=0,totalEval=0;
+for(const om of oppMoves){
+this.engine.makeMove(om);
+const evalAfter=this.evaluateFromPerspective();
+this.engine.undoMove();
+if(evalAfter>-100)goodMoves++;
+totalEval+=evalAfter;
+}
+const avgEval=totalEval/oppMoves.length;
+if(goodMoves<=2)difficulty+=80;
+else if(goodMoves<=4)difficulty+=40;
+if(avgEval<-50)difficulty+=30;
+}
+if(!move.captured){
+const myPieces=this.countMaterial(this.engine.turn==='w'?'b':'w');
+const oppPieces=this.countMaterial(this.engine.turn);
+if(myPieces>=oppPieces)difficulty+=20;
+}
+this.engine.undoMove();
+return difficulty;
+}
+
+evaluateFromPerspective(){
+let score=0;
+for(let i=0;i<64;i++){
+const p=this.engine.board[i];if(!p)continue;
+const isWhite=this.engine.color(p)==='w',val=PVAL[p.toUpperCase()];
+score+=isWhite?val:-val;
+}
+return this.engine.turn==='w'?score:-score;
+}
+
+countMaterial(color){
+let total=0;
+for(let i=0;i<64;i++){
+const p=this.engine.board[i];if(p&&this.engine.color(p)===color)total+=PVAL[p.toUpperCase()];
+}
+return total;
+}
+
+maybeBlunder(bestMoves){
+if(this.config.blunderChance<=0||bestMoves.length<=1)return bestMoves[0];
+if(Math.random()<this.config.blunderChance){
+const badMoves=bestMoves.slice(1);
+if(badMoves.length>0){
+const idx=Math.floor(Math.random()*Math.min(badMoves.length,3));
+return badMoves[idx];
+}
+}
+return bestMoves[0];
+}
+
+findBestMove(){
+this.nodes=0;
+const moves=this.engine.generateMoves();
+if(!moves.length)return null;
+const color=this.engine.turn==='w'?1:-1;
+const depth=this.config.depth;
+const scoredMoves=[];
+for(const m of moves){
+this.engine.makeMove(m);
+let score=-this.negamax(depth-1,-Infinity,Infinity,-color,true);
+this.engine.undoMove();
+scoredMoves.push({move:m,score:score});
+}
+scoredMoves.sort((a,b)=>b.score-a.score);
+if(this.config.squeeze&&Math.abs(scoredMoves[0].score)<200){
+for(const sm of scoredMoves){
+if(Math.abs(sm.score-scoredMoves[0].score)<80){
+sm.practical=this.calculatePracticalDifficulty(sm.move);
+sm.score+=sm.practical*0.4;
+}
+}
+scoredMoves.sort((a,b)=>b.score-a.score);
+}
+const best=this.maybeBlunder(scoredMoves);
+return {move:best.move,score:best.score,nodes:this.nodes,depth:depth,style:this.getStyleDescription(best.move,best.score)};
+}
+
+getStyleDescription(move,score){
+if(Math.abs(score)>500)return 'Taktický úder — materiálna výhoda';
+if(this.config.squeeze&&Math.abs(score)<150)return 'Carlsen squeeze — postupný tlak';
+if(move.captured)return 'Výmena s pozičným cieľom';
+if(move.flags==='K'||move.flags==='Q')return 'Rozvoj veže cez rošádu';
+return 'Prophylaktický ťah — obmedzenie protihry';
+}
+}
+
+// ==================== SOUND ENGINE ====================
+class SoundEngine {
+constructor(){this.ctx=null;this.enabled=true;}
+init(){if(!this.ctx)this.ctx=new(window.AudioContext||window.webkitAudioContext)();}
+play(type){
+if(!this.enabled||!this.ctx)return;
+const o=this.ctx.createOscillator(),g=this.ctx.createGain();
+o.connect(g);g.connect(this.ctx.destination);
+const now=this.ctx.currentTime;
+if(type==='move'){o.type='sine';o.frequency.setValueAtTime(400,now);g.gain.setValueAtTime(0.08,now);g.gain.exponentialRampToValueAtTime(0.01,now+0.1);o.start(now);o.stop(now+0.1);}
+else if(type==='capture'){o.type='square';o.frequency.setValueAtTime(200,now);o.frequency.exponentialRampToValueAtTime(100,now+0.15);g.gain.setValueAtTime(0.12,now);g.gain.exponentialRampToValueAtTime(0.01,now+0.2);o.start(now);o.stop(now+0.2);}
+else if(type==='check'){o.type='sawtooth';o.frequency.setValueAtTime(500,now);o.frequency.linearRampToValueAtTime(700,now+0.1);g.gain.setValueAtTime(0.1,now);g.gain.exponentialRampToValueAtTime(0.01,now+0.3);o.start(now);o.stop(now+0.3);}
+else if(type==='squeeze'){o.type='sine';o.frequency.setValueAtTime(350,now);o.frequency.setValueAtTime(450,now+0.15);g.gain.setValueAtTime(0.08,now);g.gain.exponentialRampToValueAtTime(0.01,now+0.3);o.start(now);o.stop(now+0.3);}
+else if(type==='gameend'){o.type='sine';o.frequency.setValueAtTime(523,now);o.frequency.setValueAtTime(659,now+0.2);o.frequency.setValueAtTime(784,now+0.4);g.gain.setValueAtTime(0.12,now);g.gain.linearRampToValueAtTime(0,now+0.8);o.start(now);o.stop(now+0.8);}
+}
+}
+
+// ==================== CLOCK ====================
+class ChessClock {
+constructor(wTime,bTime,inc){this.wTime=wTime;this.bTime=bTime;this.inc=inc;this.turn='w';this.running=false;this.lastTick=0;}
+start(turn){this.turn=turn;this.running=true;this.lastTick=Date.now();}
+stop(){this.running=false;}
+tick(){if(!this.running)return;const now=Date.now(),elapsed=now-this.lastTick;this.lastTick=now;if(this.turn==='w')this.wTime-=elapsed;else this.bTime-=elapsed;if(this.wTime<=0||this.bTime<=0)this.running=false;}
+switch(){if(this.turn==='w'){this.wTime+=this.inc*1000;this.turn='b';}else{this.bTime+=this.inc*1000;this.turn='w';}this.lastTick=Date.now();}
+format(ms){if(ms<=0)return'0:00';const totalSec=Math.ceil(ms/1000);const m=Math.floor(totalSec/60),s=totalSec%60;return m+':'+(s<10?'0':'')+s;}
+}
+
+// ==================== TACTIC FINDER ====================
+class TacticFinder {
+constructor(engine,ai){this.engine=engine;this.ai=ai;}
+findHiddenTactic(){
+if(this.engine.moveHistory.length===0)return null;
+this.engine.undoMove();
+const best=this.ai.findBestMove();
+this.engine.makeMove(this.engine.moveHistory[this.engine.moveHistory.length-1]);
+if(!best||Math.abs(best.score)<100)return null;
+const alg=this.engine.getAlgebraic(best.move);
+return {move:alg,score:(best.score/100).toFixed(1),style:best.style,desc:'AI odporúča: '+alg+' (eval '+((best.score/100).toFixed(1))+' | '+best.style+')'};
+}
+}
+
+// ==================== UI CONTROLLER ====================
+class ChessUI {
+constructor(){
+this.engine=new ChessEngine();
+this.level=3;
+this.ai=new MagnusAI(this.engine,this.level);
+this.sound=new SoundEngine();
+this.clock=null;
+this.tactic=new TacticFinder(this.engine,this.ai);
+this.selected=null;
+this.legalMoves=[];
+this.lastMove=null;
+this.promotionCallback=null;
+this.gameOver=false;
+this.initBoard();
+this.updateDisplay();
+this.startClocks();
+setInterval(()=>this.updateClocks(),100);
+}
+initBoard(){
+const b=document.getElementById('board');b.innerHTML='';
+for(let i=0;i<64;i++){
+const sq=document.createElement('div');
+sq.className='square '+(Math.floor(i/8)%2===i%2?'light':'dark');
+sq.dataset.idx=i;
+sq.onclick=()=>this.onSquareClick(i);
+b.appendChild(sq);
+}
+}
+render(){
+const squares=document.querySelectorAll('.square');
+squares.forEach((sq,i)=>{
+sq.innerHTML='';sq.classList.remove('selected','last-move','legal-move','legal-capture','check');
+const p=this.engine.board[i];
+if(p){
+const span=document.createElement('span');
+span.className='piece '+(this.engine.color(p)==='w'?'white':'black');
+span.textContent=PIECES[this.engine.color(p)][p.toUpperCase()];
+sq.appendChild(span);
+}
+});
+if(this.selected!=null)squares[this.selected].classList.add('selected');
+this.legalMoves.forEach(m=>{
+const sq=squares[m.to];
+sq.classList.add(m.captured||m.flags==='E'?'legal-capture':'legal-move');
+});
+if(this.lastMove){squares[this.lastMove.from].classList.add('last-move');squares[this.lastMove.to].classList.add('last-move');}
+const k=this.engine.findKing(this.engine.turn);
+if(k>=0&&this.engine.isAttacked(k,this.engine.opponent(this.engine.turn)))squares[k].classList.add('check');
+}
+onSquareClick(idx){
+if(this.gameOver)return;
+this.sound.init();
+const mode=document.getElementById('gameMode').value;
+const isAI=(mode==='pve-white'&&this.engine.turn==='b')||(mode==='pve-black'&&this.engine.turn==='w')||(mode==='ai-ai');
+if(isAI)return;
+if(this.selected==null){
+const p=this.engine.board[idx];if(p&&this.engine.color(p)===this.engine.turn){this.selected=idx;this.legalMoves=this.engine.generateMoves().filter(m=>m.from===idx);this.render();}
+}else{
+const move=this.legalMoves.find(m=>m.to===idx);
+if(move){if(move.flags==='P'){this.showPromotion(move);return;}this.executeMove(move);}
+this.selected=null;this.legalMoves=[];this.render();
+}
+}
+showPromotion(move){
+const modal=document.getElementById('promotionModal');
+const box=document.getElementById('promotionBox');box.innerHTML='';
+const pieces=this.engine.turn==='w'?['Q','R','B','N']:['q','r','b','n'];
+pieces.forEach(p=>{
+const btn=document.createElement('div');btn.className='promotion-piece';
+btn.textContent=PIECES[this.engine.turn][p.toUpperCase()];
+btn.onclick=()=>{modal.classList.remove('active');move.promotion=p;this.executeMove(move);};
+box.appendChild(btn);
+});
+modal.classList.add('active');
+}
+executeMove(move){
+const wasCapture=!!move.captured||move.flags==='E';
+this.engine.makeMove(move);
+this.lastMove=move;
+if(wasCapture)this.sound.play('capture');
+else this.sound.play('move');
+if(this.engine.isCheckmate()||this.engine.isStalemate()||this.engine.isDraw()){this.sound.play('gameend');this.gameOver=true;}
+else if(this.engine.isCheck(this.engine.turn))this.sound.play('check');
+if(this.clock)this.clock.switch();
+this.updateDisplay();
+this.checkAI();
+}
+checkAI(){
+if(this.gameOver)return;
+const mode=document.getElementById('gameMode').value;
+const isAI=(mode==='pve-white'&&this.engine.turn==='b')||(mode==='pve-black'&&this.engine.turn==='w')||(mode==='ai-ai');
+if(isAI){
+setTimeout(()=>{
+const newLevel=parseInt(document.getElementById('aiLevel').value)||3;
+if(newLevel!==this.level){this.level=newLevel;this.ai=new MagnusAI(this.engine,this.level);}
+const result=this.ai.findBestMove();
+if(result&&result.move){
+const status=document.getElementById('statusBar');
+const styleText=result.style||'Analyzujem...';
+status.innerHTML='<span class="status-squeeze">🧠 Magnus AI: '+styleText+'</span><br><span style="font-size:11px;color:#888">Hĺbka '+result.depth+' | Uzly: '+(result.nodes/1000).toFixed(1)+'k | Eval: '+(result.score/100).toFixed(2)+'</span>';
+this.executeMove(result.move);
+}
+},400);
+}
+}
+
+updateDisplay(){
+this.render();
+document.getElementById('capturedWhite').innerHTML=this.engine.captured.w.map(p=>'<span class="captured-white">'+PIECES.b[p.toUpperCase()]+'</span>').join('');
+document.getElementById('capturedBlack').innerHTML=this.engine.captured.b.map(p=>'<span class="captured-black">'+PIECES.w[p.toUpperCase()]+'</span>').join('');
+const ml=document.getElementById('moveList');ml.innerHTML='';
+for(let i=0;i<this.engine.moveHistory.length;i+=2){
+const row=document.createElement('div');row.className='move-row';
+const num=document.createElement('span');num.className='move-num';num.textContent=Math.floor(i/2)+1+'.';row.appendChild(num);
+const w=document.createElement('span');w.className='move-white';w.textContent=this.engine.getAlgebraic(this.engine.moveHistory[i]);row.appendChild(w);
+if(this.engine.moveHistory[i+1]){const b=document.createElement('span');b.className='move-black';b.textContent=this.engine.getAlgebraic(this.engine.moveHistory[i+1]);row.appendChild(b);}
+ml.appendChild(row);
+}
+ml.scrollTop=ml.scrollHeight;
+const status=document.getElementById('statusBar');
+if(this.engine.isCheckmate())status.innerHTML='<span class="status-mate">MAT! '+(this.engine.turn==='w'?'Čierny':'Biely')+' vyhral.</span>';
+else if(this.engine.isStalemate())status.innerHTML='<span class="status-draw">PAT — remíza.</span>';
+else if(this.engine.isDraw())status.innerHTML='<span class="status-draw">Remíza (50 ťahov / opakovanie).</span>';
+else if(this.engine.isCheck(this.engine.turn))status.innerHTML='<span class="status-check">ŠACH!</span> Ťah '+(this.engine.turn==='w'?'bieleho':'čierneho');
+else status.innerHTML='Ťah '+(this.engine.turn==='w'?'bieleho':'čierneho')+'<br><span style="font-size:11px;color:#888">Pozícia: '+(this.getPositionType())+'</span>';
+document.getElementById('game-status').textContent=this.engine.turn==='w'?'♔ Biely na ťahu':'♚ Čierny na ťahu';
+this.updateEval();
+document.getElementById('clockWhite').classList.toggle('active',this.clock&&this.clock.turn==='w');
+document.getElementById('clockBlack').classList.toggle('active',this.clock&&this.clock.turn==='b');
+}
+getPositionType(){
+const result=this.ai.findBestMove();
+if(!result)return 'Vyrovnaná';
+const s=Math.abs(result.score);
+if(s<30)return 'Vyrovnaná — Carlsen squeeze aktivný';
+if(s<100)return 'Mierna výhoda';
+if(s<300)return 'Výhoda';
+return 'Rozhodujúca výhoda';
+}
+updateEval(){
+const result=this.ai.findBestMove();
+let score=result?result.score:0;
+const normalized=Math.max(-1500,Math.min(1500,score));
+const pct=50+(normalized/3000)*100;
+document.getElementById('evalBar').style.setProperty('--eval',pct+'%');
+document.getElementById('evalText').textContent=(score/100).toFixed(2);
+}
+startClocks(){
+const min=parseInt(document.getElementById('gameTime').value)||10;
+const inc=parseInt(document.getElementById('increment').value)||0;
+this.clock=new ChessClock(min*60000,min*60000,inc);
+this.clock.start('w');
+}
+updateClocks(){
+if(!this.clock)return;
+this.clock.tick();
+document.getElementById('timeWhite').textContent=this.clock.format(this.clock.wTime);
+document.getElementById('timeBlack').textContent=this.clock.format(this.clock.bTime);
+if(!this.clock.running&&(this.clock.wTime<=0||this.clock.bTime<=0)&&!this.gameOver){
+this.gameOver=true;this.sound.play('gameend');
+document.getElementById('statusBar').innerHTML='<span class="status-mate">Koniec času! '+(this.clock.wTime<=0?'Čierny':'Biely')+' vyhral.</span>';
+}
+}
+undoMove(){
+if(this.engine.moveHistory.length===0||this.gameOver)return;
+const mode=document.getElementById('gameMode').value;
+const isAI=(mode==='pve-white'&&this.engine.moveHistory.length%2===1)||(mode==='pve-black'&&this.engine.moveHistory.length%2===0)||(mode==='ai-ai');
+if(isAI&&this.engine.moveHistory.length>=2){this.engine.undoMove();this.engine.undoMove();}
+else this.engine.undoMove();
+this.lastMove=this.engine.moveHistory.length>0?this.engine.moveHistory[this.engine.moveHistory.length-1]:null;
+this.gameOver=false;
+this.updateDisplay();
+}
+resetGame(){
+this.engine.reset();this.selected=null;this.legalMoves=[];this.lastMove=null;this.gameOver=false;
+this.level=parseInt(document.getElementById('aiLevel').value)||3;
+this.ai=new MagnusAI(this.engine,this.level);
+this.startClocks();this.updateDisplay();
+}
+findTactic(){
+const t=this.tactic.findHiddenTactic();
+const alert=document.getElementById('tacticAlert');
+if(t){document.getElementById('tacticText').textContent=t.desc;alert.classList.add('active');}
+else{document.getElementById('tacticText').textContent='Žiadna výrazná taktika nebola detegovaná v tejto pozícii.';alert.classList.add('active');}
+setTimeout(()=>alert.classList.remove('active'),6000);
+}
+exportFEN(){navigator.clipboard.writeText(this.engine.getFEN());alert('FEN skopírovaný do schránky!\n'+this.engine.getFEN());}
+exportPGN(){navigator.clipboard.writeText(this.engine.getPGN());alert('PGN skopírovaný do schránky!');}
+importFile(e){
+const file=e.target.files[0];if(!file)return;
+const reader=new FileReader();
+reader.onload=(ev)=>{
+const text=ev.target.result.trim();
+if(text.includes('/')){
+this.engine.parseFEN(text.split('\n')[0]);
+this.engine.board=this.engine.parseFEN(text.split('\n')[0]);
+this.updateDisplay();
+}else alert('Formát nie je podporovaný v tejto verzii.');
+};
+reader.readAsText(file);
+}
+}
+
+document.getElementById('soundOn').onchange=function(){ game.sound.enabled=this.checked; };
+const game=new ChessUI();
+</script>
+</body>
+</html>
